@@ -395,16 +395,13 @@ class CxViewModel(application: Application) : AndroidViewModel(application) {
 
         viewModelScope.launch(Dispatchers.IO) {
             _authUiState.value = AuthUiState.Loading
-            val existing = repository.getUserByEmail(email.trim())
-            if (existing != null) {
-                val err = "An account with email $email already exists."
-                _authUiState.value = AuthUiState.Error(err)
-                launch(Dispatchers.Main) { onError(err) }
-                return@launch
-            }
 
             // Create the real, secure Firebase Auth account first. Firebase handles
             // password hashing/storage — this app never sees or stores it again.
+            // Firebase Auth itself rejects a duplicate email automatically (its
+            // error message is surfaced below), so no separate pre-check is needed
+            // — a manual Firestore read here would fail anyway, since the person
+            // isn't authenticated until this call succeeds.
             val authResult = repository.firebaseSignUp(email.trim(), password.trim())
             val uid = authResult.getOrNull()
             if (uid == null) {
@@ -508,23 +505,21 @@ class CxViewModel(application: Application) : AndroidViewModel(application) {
 
         viewModelScope.launch(Dispatchers.IO) {
             _authUiState.value = AuthUiState.Loading
-            val user = repository.getUserByEmail(email.trim())
-            if (user == null) {
-                val err = "No user account registered with $email."
-                _authUiState.value = AuthUiState.Error(err)
-                launch(Dispatchers.Main) { onError(err) }
-                return@launch
-            }
 
             // SECURITY FIX: this used to accept a brand-new password straight from
             // whoever filled in the form — meaning anyone who merely knew a
             // colleague's email address could silently take over their account.
             // Firebase now emails a secure reset link to the account's real inbox;
             // only whoever controls that inbox can actually change the password.
+            //
+            // No pre-check against Firestore here — that read requires being signed
+            // in, which is never true on the Forgot Password screen. Firebase's
+            // sendPasswordResetEmail already handles an unregistered email safely
+            // on its own.
             val result = repository.firebaseSendPasswordReset(email.trim())
             result.fold(
                 onSuccess = {
-                    _authUiState.value = AuthUiState.Success(user, "Password reset link sent to $email. Please check your inbox.")
+                    _authUiState.value = AuthUiState.Success(UserAccount(), "Password reset link sent to $email. Please check your inbox.")
                     launch(Dispatchers.Main) { onSuccess() }
                 },
                 onFailure = { e ->
