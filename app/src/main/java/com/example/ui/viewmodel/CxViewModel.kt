@@ -357,6 +357,7 @@ class CxViewModel(application: Application) : AndroidViewModel(application) {
                     if (user != null) {
                         _currentUser.value = user
                         _authUiState.value = AuthUiState.Success(user, "Welcome, ${user.fullName}!")
+                        repository.seedInitialDataIfNeeded()
                         launch(Dispatchers.Main) { onSuccess() }
                     } else {
                         val err = "Signed in, but no CX Tracker profile was found for this account. Please contact your Unit Head."
@@ -478,6 +479,7 @@ class CxViewModel(application: Application) : AndroidViewModel(application) {
                 unitHeadName = emailTrigger.unitHeadName
             )
 
+            repository.seedInitialDataIfNeeded()
             _authUiState.value = AuthUiState.Success(createdUser, "Account created successfully for ${createdUser.fullName}!")
             launch(Dispatchers.Main) { onSuccess() }
         }

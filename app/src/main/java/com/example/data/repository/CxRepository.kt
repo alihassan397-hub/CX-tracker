@@ -327,9 +327,16 @@ class CxRepository(
 
     /** Seeds CX Units + the team roster once, on first launch, if they don't exist yet. Safe to call every app start. */
     suspend fun seedInitialDataIfNeeded() {
-        val existing = unitsCol.limit(1).get().await()
-        if (!existing.isEmpty) return
-        seedUnitsAndRoster()
+        try {
+            val existing = unitsCol.limit(1).get().await()
+            if (!existing.isEmpty) return
+            seedUnitsAndRoster()
+        } catch (e: Exception) {
+            // Expected before anyone has signed in yet — Firestore rules require
+            // authentication to read/write, so this simply retries (successfully)
+            // the next time the app starts after someone has logged in. Must NOT
+            // propagate, or it crashes the app on first open before login.
+        }
     }
 
     /** Used by the "reset to sample data" debug action. */
