@@ -21,31 +21,7 @@ setGlobalOptions({ maxInstances: 10 });
 const db = admin.firestore();
 
 // ---------------------------------------------------------------------------
-// 1) Keep users_by_uid/{authUid} in sync with users/{id}, server-side only.
-//    Firestore Security Rules trust this mirror to decide "is this caller a
-//    Unit Head" — it must never be writable by the client itself (see
-//    firestore.rules), otherwise anyone could fake their own admin mirror.
-// ---------------------------------------------------------------------------
-exports.onUserProfileWritten = onDocumentWritten("users/{docId}", async (event) => {
-  const after = event.data?.after?.data();
-  const before = event.data?.before?.data();
-
-  // Document deleted
-  if (!after) {
-    const uid = before?.authUid;
-    if (uid) {
-      await db.collection("users_by_uid").doc(uid).delete().catch(() => {});
-    }
-    return;
-  }
-
-  if (!after.authUid) return; // profile not yet linked to a Firebase Auth account
-
-  await db.collection("users_by_uid").doc(after.authUid).set(after, { merge: false });
-});
-
-// ---------------------------------------------------------------------------
-// 2) Automatically email the Unit Head whenever a new team member signs up.
+// 1) Automatically email the Unit Head whenever a new team member signs up.
 //    This replaces the old flow, where the NEW user's own phone had to open
 //    a mailto: draft and manually hit send — which is why the admin often
 //    never actually found out about new sign-ups.

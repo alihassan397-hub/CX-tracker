@@ -11,101 +11,83 @@ rules_version = '2';
 // sends the request.
 //
 // Deploy with: firebase deploy --only firestore:rules
+// (or paste this file's contents directly into Firebase Console →
+// Firestore Database → Rules → Publish)
 
 function isSignedIn() {
   return request.auth != null;
 }
 
-// Looks up the caller's own profile document (by their own uid, matched via
-// the authUid field) and checks whether their role is UNIT_HEAD or ADMIN.
-// This performs one extra read per rule check but keeps the "who is an
-// admin" decision in exactly one place: the users collection, exactly like
-// the app itself decides it via UserAccount.isUnitHead.
-function isUnitHead() {
-  return isSignedIn() && getUserDoc().role in ["UNIT_HEAD", "ADMIN"];
+// Each user's Firestore profile document ID IS their Firebase Auth UID
+// (see CxRepository.insertUserAccount), so this is a single, direct,
+// cheap lookup — no separate mirror collection or Cloud Function needed
+// for this check to work.
+function getUserDoc() {
+  return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
 }
 
-function getUserDoc() {
-  // We store the profile doc ID as our own numeric id (as a string), and
-  // separately store authUid == request.auth.uid on that same document.
-  // Firestore rules can't do a "WHERE authUid == X" query lookup directly,
-  // so the app also mirrors each user's profile under users_by_uid/{uid}
-  // (see Cloud Function onUserCreated) purely so rules can do a cheap,
-  // direct get() by document ID.
-  return get(/databases/$(database)/documents/users_by_uid/$(request.auth.uid)).data;
+function isUnitHead() {
+  return isSignedIn() && getUserDoc().role in ["UNIT_HEAD", "ADMIN"];
 }
 
 function isOwner(userId) {
   return isSignedIn() && getUserDoc().id == userId;
 }
 
-match /databases/{database}/documents {
+service cloud.firestore {
+  match /databases/{database}/documents {
 
-  // ---- users / users_by_uid : profile data ----
-  match /users/{docId} {
-    allow read: if isSignedIn();
-    // Anyone signed in may create their OWN profile at sign-up time, but
-    // only ever as TEAM_MEMBER — never as UNIT_HEAD/ADMIN. Promoting someone
-    // to Unit Head is a manual, one-time action taken from the Firebase
-    // Console by whoever owns the project, not something the app can do.
-    allow create: if isSignedIn()
-                  && request.resource.data.role == "TEAM_MEMBER"
-                  && request.resource.data.authUid == request.auth.uid;
-    // A user may update their own profile fields (name, phone, etc) but can
-    // never change their own role. A Unit Head may update anyone.
-    allow update: if isUnitHead()
-                  || (isSignedIn()
-                      && resource.data.authUid == request.auth.uid
-                      && request.resource.data.role == resource.data.role);
-    allow delete: if isUnitHead();
-  }
+    // ---- users : profile data (document ID = Firebase Auth UID) ----
+    match /users/{uid} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+                    && uid == request.auth.uid
+                    && request.resource.data.role == "TEAM_MEMBER"
+                    && request.resource.data.authUid == request.auth.uid;
+      allow update: if isUnitHead()
+                    || (isSignedIn()
+                        && uid == request.auth.uid
+                        && request.resource.data.role == resource.data.role);
+      allow delete: if isUnitHead();
+    }
 
-  match /users_by_uid/{uid} {
-    allow read: if isSignedIn();
-    allow write: if false; // written only by the trusted Cloud Function
-  }
+    // ---- units & team roster ----
+    match /units/{docId} {
+      allow read: if isSignedIn();
+      allow write: if isUnitHead();
+    }
 
-  // ---- units & team roster ----
-  match /units/{docId} {
-    allow read: if isSignedIn();
-    allow write: if isUnitHead();
-  }
+    match /teamMembers/{docId} {
+      allow read: if isSignedIn();
+      allow create: if isUnitHead() ||
+        (isSignedIn() && request.resource.data.email == getUserDoc().email);
+      allow update, delete: if isUnitHead();
+    }
 
-  match /teamMembers/{docId} {
-    allow read: if isSignedIn();
-    allow write: if isUnitHead();
-  }
+    // ---- tasks assigned by the Unit Head ----
+    match /tasks/{docId} {
+      allow read: if isSignedIn();
+      allow create, delete: if isUnitHead();
+      allow update: if isUnitHead() ||
+        (isSignedIn() &&
+         request.resource.data.unitId == resource.data.unitId &&
+         request.resource.data.assigneeId == resource.data.assigneeId &&
+         request.resource.data.dueDateTime == resource.data.dueDateTime &&
+         request.resource.data.tatHours == resource.data.tatHours);
+    }
 
-  // ---- tasks assigned by the Unit Head ----
-  match /tasks/{docId} {
-    allow read: if isSignedIn();
-    // Only a Unit Head can create/assign or delete a task.
-    allow create, delete: if isUnitHead();
-    // A Unit Head can edit anything. A team member may only update the
-    // status/remarks fields of a task assigned to them (marking it in
-    // progress, pending, or completed) — never reassign it, change its
-    // deadline, or edit tasks assigned to someone else.
-    allow update: if isUnitHead() ||
-      (isSignedIn() &&
-       request.resource.data.unitId == resource.data.unitId &&
-       request.resource.data.assigneeId == resource.data.assigneeId &&
-       request.resource.data.dueDateTime == resource.data.dueDateTime &&
-       request.resource.data.tatHours == resource.data.tatHours);
-  }
+    // ---- time-motion logs ----
+    match /timeMotionLogs/{docId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update, delete: if isUnitHead();
+    }
 
-  // ---- time-motion logs ----
-  match /timeMotionLogs/{docId} {
-    allow read: if isSignedIn();
-    allow create: if isSignedIn();
-    allow update, delete: if isUnitHead();
-  }
-
-  // ---- each team member's own daily task entries ----
-  match /dailyTasks/{docId} {
-    allow read: if isSignedIn();
-    allow create: if isSignedIn();
-    // A team member can edit/delete only their own entries; a Unit Head can
-    // manage everyone's, e.g. to correct a mistaken entry.
-    allow update, delete: if isUnitHead() || isOwner(resource.data.userId);
+    // ---- each team member's own daily task entries ----
+    match /dailyTasks/{docId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update, delete: if isUnitHead() || isOwner(resource.data.userId);
+    }
   }
 }

@@ -70,32 +70,34 @@ class CxRepository(
     }
 
     suspend fun getUserById(id: Long): UserAccount? {
-        val doc = usersCol.document(id.toString()).get().await()
-        return doc.data?.let(::mapToUserAccount)
+        val snap = usersCol.whereEqualTo("id", id).limit(1).get().await()
+        return snap.documents.firstOrNull()?.data?.let(::mapToUserAccount)
     }
 
     suspend fun insertUserAccount(user: UserAccount): Long {
         val id = if (user.id != 0L) user.id else newId()
         val toSave = user.copy(id = id, email = user.email.trim().lowercase())
-        // NOTE: the users_by_uid/{authUid} mirror used by Firestore Security Rules
-        // is written by a Cloud Function trigger (onUserProfileWritten), never
-        // directly by the client — see functions/index.js. If the client wrote it
-        // directly, a user could fake an "admin" mirror doc and bypass the rules
-        // that trust it.
-        usersCol.document(id.toString()).set(userToMap(toSave)).await()
+        // Prefer the Firebase Auth UID as the document ID so Firestore Security
+        // Rules can verify "is this caller a Unit Head" with one direct get() by
+        // request.auth.uid — no Cloud Function mirror required for this to work.
+        val docId = toSave.authUid.ifBlank { id.toString() }
+        usersCol.document(docId).set(userToMap(toSave)).await()
         return id
     }
 
     suspend fun updateUserAccount(user: UserAccount) {
-        usersCol.document(user.id.toString()).set(userToMap(user)).await()
+        val docId = user.authUid.ifBlank { user.id.toString() }
+        usersCol.document(docId).set(userToMap(user)).await()
     }
 
     suspend fun deleteUserAccount(user: UserAccount) {
-        usersCol.document(user.id.toString()).delete().await()
+        val docId = user.authUid.ifBlank { user.id.toString() }
+        usersCol.document(docId).delete().await()
     }
 
     suspend fun deleteUserAccountById(userId: Long) {
-        usersCol.document(userId.toString()).delete().await()
+        val snap = usersCol.whereEqualTo("id", userId).limit(1).get().await()
+        snap.documents.firstOrNull()?.reference?.delete()?.await()
     }
 
     // ---- Firebase Authentication (real, secure sign-in) ----

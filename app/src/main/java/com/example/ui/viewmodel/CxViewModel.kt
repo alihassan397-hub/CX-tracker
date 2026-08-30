@@ -439,47 +439,56 @@ class CxViewModel(application: Application) : AndroidViewModel(application) {
             val createdUser = newUser.copy(id = newId)
             _currentUser.value = createdUser
 
-            // Also check if member exists in TeamMember roster; if not, add them
-            val allMembers = repository.allTeamMembers.firstOrNull() ?: emptyList()
-            val existingMember = allMembers.find {
-                it.email.equals(createdUser.email, ignoreCase = true) ||
-                it.fullName.equals(createdUser.fullName, ignoreCase = true)
-            }
-            if (existingMember == null) {
-                val targetUnitId = createdUser.unitId ?: 1L
-                val teamMemberEntry = TeamMember(
-                    unitId = targetUnitId,
-                    fullName = createdUser.fullName,
-                    employeeId = createdUser.employeeId,
-                    email = createdUser.email,
-                    phone = createdUser.phone,
-                    role = "Team Member",
-                    designation = createdUser.designation,
-                    avatarColorHex = avatarColor
+            // Everything below this point is a secondary convenience (roster
+            // entry, confirmation dialog, notification) — the account itself is
+            // already created and the person is already signed in. None of this
+            // should ever be able to crash the sign-up flow if it hiccups.
+            try {
+                val allMembers = repository.allTeamMembers.firstOrNull() ?: emptyList()
+                val existingMember = allMembers.find {
+                    it.email.equals(createdUser.email, ignoreCase = true) ||
+                    it.fullName.equals(createdUser.fullName, ignoreCase = true)
+                }
+                if (existingMember == null) {
+                    val targetUnitId = createdUser.unitId ?: 1L
+                    val teamMemberEntry = TeamMember(
+                        unitId = targetUnitId,
+                        fullName = createdUser.fullName,
+                        employeeId = createdUser.employeeId,
+                        email = createdUser.email,
+                        phone = createdUser.phone,
+                        role = "Team Member",
+                        designation = createdUser.designation,
+                        avatarColorHex = avatarColor
+                    )
+                    repository.insertTeamMember(teamMemberEntry)
+                }
+            } catch (_: Exception) { /* roster entry can be added later by a Unit Head */ }
+
+            try {
+                // The Firestore "users" document just written above also triggers a
+                // Cloud Function (functions/index.js: onUserCreated) that automatically
+                // emails the Unit Head, once functions are deployed — no one needs to
+                // tap "send" on their own phone. We still show a local confirmation
+                // dialog with the same details as a visible receipt / manual backup.
+                val unit = if (createdUser.unitId != null) repository.getUnitById(createdUser.unitId) else null
+                val emailTrigger = UserOnboardingEmailHelper.buildOnboardingTrigger(createdUser, unit)
+                _latestEmailTrigger.value = emailTrigger
+
+                TatNotificationManager.sendUserOnboardedNotification(
+                    context = getApplication(),
+                    userName = createdUser.fullName,
+                    userEmail = createdUser.email,
+                    userRole = emailTrigger.newUserRole,
+                    unitName = emailTrigger.unitName,
+                    unitHeadName = emailTrigger.unitHeadName
                 )
-                repository.insertTeamMember(teamMemberEntry)
-            }
+            } catch (_: Exception) { /* confirmation dialog / notification are best-effort */ }
 
-            // The Firestore "users" document just written above also triggers a
-            // Cloud Function (functions/index.js: onUserCreated) that automatically
-            // emails the Unit Head — no one needs to tap "send" on their own phone
-            // anymore. We still show a local confirmation dialog with the same
-            // details as a visible receipt / manual backup.
-            val unit = if (createdUser.unitId != null) repository.getUnitById(createdUser.unitId) else null
-            val emailTrigger = UserOnboardingEmailHelper.buildOnboardingTrigger(createdUser, unit)
-            _latestEmailTrigger.value = emailTrigger
+            try {
+                repository.seedInitialDataIfNeeded()
+            } catch (_: Exception) { /* retried again next successful sign-in */ }
 
-            // Dispatch Android System Notification
-            TatNotificationManager.sendUserOnboardedNotification(
-                context = getApplication(),
-                userName = createdUser.fullName,
-                userEmail = createdUser.email,
-                userRole = emailTrigger.newUserRole,
-                unitName = emailTrigger.unitName,
-                unitHeadName = emailTrigger.unitHeadName
-            )
-
-            repository.seedInitialDataIfNeeded()
             _authUiState.value = AuthUiState.Success(createdUser, "Account created successfully for ${createdUser.fullName}!")
             launch(Dispatchers.Main) { onSuccess() }
         }
