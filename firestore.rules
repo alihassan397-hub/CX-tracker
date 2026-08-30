@@ -3,12 +3,11 @@ rules_version = '2';
 // CX Tracker — Firestore Security Rules
 //
 // These rules are the REAL enforcement of "only a Unit Head can assign
-// tasks / edit members / delete things". The Android app also checks
-// user.isUnitHead before showing those buttons, but that check only
-// controls what the app SHOWS — it does nothing to stop a modified or
-// rebuilt copy of the app from sending the same request straight to the
-// server. These rules are what actually block it, no matter which client
-// sends the request.
+// tasks / edit members / delete things, and team members can only touch
+// their own work". The Android app also checks roles before showing
+// buttons, but that only controls what the app SHOWS — it does nothing to
+// stop a modified copy of the app from sending the same request straight
+// to the server. These rules are what actually block it.
 //
 // Deploy with: firebase deploy --only firestore:rules
 // (or paste this file's contents directly into Firebase Console →
@@ -32,6 +31,14 @@ function isUnitHead() {
 
 function isOwner(userId) {
   return isSignedIn() && getUserDoc().id == userId;
+}
+
+// True if the caller's own account email matches the given team-roster
+// member's email — i.e. the task's assignee IS the person making the
+// request, not some other team member.
+function isAssignedMember(assigneeId) {
+  return isSignedIn() &&
+    get(/databases/$(database)/documents/teamMembers/$(string(assigneeId))).data.email == getUserDoc().email;
 }
 
 service cloud.firestore {
@@ -68,12 +75,16 @@ service cloud.firestore {
     match /tasks/{docId} {
       allow read: if isSignedIn();
       allow create, delete: if isUnitHead();
+      // A Unit Head can edit anything. The team member the task is actually
+      // assigned to may update its status/remarks — never reassign it,
+      // change its deadline, or touch a task assigned to someone else.
       allow update: if isUnitHead() ||
         (isSignedIn() &&
          request.resource.data.unitId == resource.data.unitId &&
          request.resource.data.assigneeId == resource.data.assigneeId &&
          request.resource.data.dueDateTime == resource.data.dueDateTime &&
-         request.resource.data.tatHours == resource.data.tatHours);
+         request.resource.data.tatHours == resource.data.tatHours &&
+         isAssignedMember(resource.data.assigneeId));
     }
 
     // ---- time-motion logs ----
@@ -86,7 +97,9 @@ service cloud.firestore {
     // ---- each team member's own daily task entries ----
     match /dailyTasks/{docId} {
       allow read: if isSignedIn();
-      allow create: if isSignedIn();
+      // A member can only create an entry under their OWN account id — not
+      // log hours/tasks on someone else's behalf.
+      allow create: if isSignedIn() && request.resource.data.userId == getUserDoc().id;
       allow update, delete: if isUnitHead() || isOwner(resource.data.userId);
     }
   }
