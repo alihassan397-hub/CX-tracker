@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "382440292127",
+    "project_id": "cx-tracker-f2c72",
+    "storage_bucket": "cx-tracker-f2c72.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:382440292127:android:6762f4a0e97d1df655ba2a",
+        "android_client_info": {
+          "package_name": "com.aistudio.hblcxtracker.pk7m2"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBaukj2id06kQE3RIhyhLNy0nM1OIv2sj8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
