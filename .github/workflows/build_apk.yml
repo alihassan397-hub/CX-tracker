@@ -1,0 +1,79 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [ "**" ]
+  pull_request:
+    branches: [ "**" ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: 'gradle'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Accept Android SDK Licenses & Install Platform
+        run: |
+          yes | sdkmanager --licenses || true
+          sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools" || true
+
+      - name: Setup Keystore and Environment Files
+        run: |
+          mkdir -p app
+          # Ensure base64 keystore is decoded if available
+          if [ -f debug.keystore.base64 ]; then
+            base64 -d debug.keystore.base64 > debug.keystore 2>/dev/null || true
+          fi
+          # Generate fresh debug keystore if not valid
+          if [ ! -s debug.keystore ]; then
+            keytool -genkeypair -v -keystore debug.keystore -alias androiddebugkey -storepass android -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+          fi
+          cp debug.keystore app/debug.keystore 2>/dev/null || true
+
+          # Create .env and .env.example files for Secrets Gradle Plugin with valid string placeholders
+          echo "GEMINI_API_KEY=AIzaSy_CX_TRACKER_PLACEHOLDER_KEY" > .env.example
+          echo "GEMINI_API_KEY=AIzaSy_CX_TRACKER_PLACEHOLDER_KEY" > .env
+          echo "GEMINI_API_KEY=AIzaSy_CX_TRACKER_PLACEHOLDER_KEY" > app/.env.example
+          echo "GEMINI_API_KEY=AIzaSy_CX_TRACKER_PLACEHOLDER_KEY" > app/.env
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.3.1'
+          validate-wrappers: false
+
+      - name: Build Debug APK
+        run: |
+          gradle :app:assembleDebug --stacktrace --no-daemon --no-configuration-cache -x test -x lint
+
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: CX-Tracker-APK
+          path: |
+            app/build/outputs/apk/debug/*.apk
+            app/build/outputs/apk/**/*.apk
+          retention-days: 7
+
+
+
+

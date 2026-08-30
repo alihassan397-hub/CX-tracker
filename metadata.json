@@ -1,0 +1,6 @@
+{
+  "name": "CX Tracker",
+  "description": "Customer Experience task tracker, TAT SLA monitoring, time motion analytics, performance dashboard, and Excel export.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

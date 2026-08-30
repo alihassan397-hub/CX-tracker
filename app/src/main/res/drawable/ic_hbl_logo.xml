@@ -1,0 +1,29 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="96dp"
+    android:height="96dp"
+    android:viewportWidth="96"
+    android:viewportHeight="96">
+
+    <!-- Teal background rounded rectangle if needed or transparent vector -->
+    <!-- Official HBL Microfinance Bank Dynamic Chevron Symbol -->
+    <!-- Top-Left White Bar -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M24,18 L38,18 L64,44 L50,44 Z" />
+
+    <!-- Main Vibrant Lime-Green Chevron Accent (#C4D600) -->
+    <path
+        android:fillColor="#C4D600"
+        android:pathData="M40,18 L54,18 L80,44 L66,44 Z" />
+
+    <!-- Bottom Left Lime-Green Stripe -->
+    <path
+        android:fillColor="#C4D600"
+        android:pathData="M24,78 L38,78 L64,52 L50,52 Z" />
+
+    <!-- Bottom Right White Stripe -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M40,78 L54,78 L80,52 L66,52 Z" />
+
+</vector>
