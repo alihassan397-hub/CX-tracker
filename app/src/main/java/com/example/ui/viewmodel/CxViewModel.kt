@@ -33,6 +33,9 @@ import com.example.util.TatNotificationManager
 import com.example.util.UserOnboardingEmailHelper
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.FirebaseFirestoreException
+import kotlinx.coroutines.CoroutineExceptionHandler
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -48,10 +51,53 @@ import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlin.coroutines.CoroutineContext
 
 class CxViewModel(application: Application) : AndroidViewModel(application) {
 
     private val repository: CxRepository
+
+    // ==========================================
+    // CRASH FIX: every Firestore write used to run inside a bare
+    // viewModelScope.launch(...) with no try/catch. The moment Firestore
+    // rejected a write (e.g. "PERMISSION_DENIED" because a user's role
+    // wasn't exactly UNIT_HEAD/ADMIN yet, or a network hiccup), that
+    // exception had nowhere to go and crashed the whole app instantly —
+    // this is why "add task" / "assign to Unit Head" were crashing while
+    // sign-up (which already had its own try/catch) kept working fine.
+    //
+    // safeLaunch() below is a drop-in replacement for viewModelScope.launch
+    // that catches any exception, turns it into a readable message, and
+    // surfaces it through _errorMessage — so the UI can show a Snackbar
+    // instead of the app dying.
+    // ==========================================
+    private val _errorMessage = MutableStateFlow<String?>(null)
+    val errorMessage = _errorMessage.asStateFlow()
+
+    fun clearError() {
+        _errorMessage.value = null
+    }
+
+    private fun friendlyErrorMessage(t: Throwable): String {
+        val fe = t as? FirebaseFirestoreException
+        return when {
+            fe != null && fe.code == FirebaseFirestoreException.Code.PERMISSION_DENIED ->
+                "Ijazat nahi mili (Permission denied). Aam wajah: aapke account ka role Firestore console mein abhi 'UNIT_HEAD' set nahi hua — Firestore > users > (aapki entry) mein role field check karein."
+            fe != null && fe.code == FirebaseFirestoreException.Code.UNAVAILABLE ->
+                "Internet connection check karein — Firestore tak nahi pohanch paye."
+            else -> "Kuch masla ho gaya: ${t.message ?: t::class.simpleName}"
+        }
+    }
+
+    private fun safeLaunch(
+        context: CoroutineContext = Dispatchers.IO,
+        block: suspend CoroutineScope.() -> Unit
+    ): Job {
+        val handler = CoroutineExceptionHandler { _, throwable ->
+            _errorMessage.value = friendlyErrorMessage(throwable)
+        }
+        return viewModelScope.launch(context + handler, block = block)
+    }
 
     // User Authentication & Session
     val allUserAccounts: StateFlow<List<UserAccount>>
@@ -201,7 +247,7 @@ class CxViewModel(application: Application) : AndroidViewModel(application) {
         // Ensure the CX Unit list & team roster exist on first run (login accounts
         // are no longer auto-seeded — real people sign up for themselves via
         // Firebase Auth, which is what actually fixes cross-device login/sync).
-        viewModelScope.launch(Dispatchers.IO) {
+        safeLaunch(Dispatchers.IO) {
             repository.seedInitialDataIfNeeded()
         }
 
@@ -209,7 +255,7 @@ class CxViewModel(application: Application) : AndroidViewModel(application) {
         TatNotificationManager.createNotificationChannels(application)
 
         // Launch SLA Monitor
-        viewModelScope.launch(Dispatchers.Default) {
+        safeLaunch(Dispatchers.Default) {
             delay(3000)
             while (true) {
                 checkAndTriggerTatNotifications()
@@ -347,7 +393,7 @@ class CxViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
 
-        viewModelScope.launch(Dispatchers.IO) {
+        safeLaunch(Dispatchers.IO) {
             _authUiState.value = AuthUiState.Loading
 
             val authResult = repository.firebaseSignIn(email, password)
@@ -393,7 +439,7 @@ class CxViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
 
-        viewModelScope.launch(Dispatchers.IO) {
+        safeLaunch(Dispatchers.IO) {
             _authUiState.value = AuthUiState.Loading
 
             // Create the real, secure Firebase Auth account first. Firebase handles
@@ -503,7 +549,7 @@ class CxViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
 
-        viewModelScope.launch(Dispatchers.IO) {
+        safeLaunch(Dispatchers.IO) {
             _authUiState.value = AuthUiState.Loading
 
             // SECURITY FIX: this used to accept a brand-new password straight from
@@ -592,7 +638,7 @@ class CxViewModel(application: Application) : AndroidViewModel(application) {
         phone: String = "",
         employeeId: String = ""
     ) {
-        viewModelScope.launch(Dispatchers.IO) {
+        safeLaunch(Dispatchers.IO) {
             val empId = employeeId.trim().ifEmpty { "CX-${(100..999).random()}" }
             val memberEmail = email.trim().ifEmpty {
                 "${fullName.trim().lowercase().replace(" ", ".")}@example.com"
@@ -617,7 +663,7 @@ class CxViewModel(application: Application) : AndroidViewModel(application) {
         newDesignation: String = "Customer Experience Intern",
         newEmail: String = ""
     ) {
-        viewModelScope.launch(Dispatchers.IO) {
+        safeLaunch(Dispatchers.IO) {
             val existing = repository.getTeamMemberById(memberId)
             if (existing != null) {
                 val updated = existing.copy(
@@ -642,7 +688,7 @@ class CxViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun updateMember(member: TeamMember) {
-        viewModelScope.launch(Dispatchers.IO) {
+        safeLaunch(Dispatchers.IO) {
             repository.updateTeamMember(member)
             val existingUser = repository.getUserByEmail(member.email)
             if (existingUser != null) {
@@ -680,7 +726,7 @@ class CxViewModel(application: Application) : AndroidViewModel(application) {
         val taskDate = customDateString?.ifBlank { null } ?: dateFormat.format(Date())
         val taskTimestamp = customTimestamp ?: System.currentTimeMillis()
 
-        viewModelScope.launch(Dispatchers.IO) {
+        safeLaunch(Dispatchers.IO) {
             val entry = DailyTaskEntry(
                 userId = user.id,
                 userName = user.fullName,
@@ -703,13 +749,13 @@ class CxViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun updateDailyTask(task: DailyTaskEntry) {
-        viewModelScope.launch(Dispatchers.IO) {
+        safeLaunch(Dispatchers.IO) {
             repository.updateDailyTask(task)
         }
     }
 
     fun deleteDailyTask(task: DailyTaskEntry) {
-        viewModelScope.launch(Dispatchers.IO) {
+        safeLaunch(Dispatchers.IO) {
             repository.deleteDailyTask(task)
         }
     }
@@ -872,7 +918,7 @@ class CxViewModel(application: Application) : AndroidViewModel(application) {
         val currentAnalytics = analytics.value
         val currentUnit = units.value.find { it.id == user.unitId }?.name ?: "CX Division"
 
-        viewModelScope.launch {
+        safeLaunch {
             _aiAnalysisState.value = AiAnalysisState.Loading
             try {
                 val report = GeminiService.analyzeUserDailyPerformance(
@@ -901,7 +947,7 @@ class CxViewModel(application: Application) : AndroidViewModel(application) {
         )
         _aiChatMessages.value = _aiChatMessages.value + userMessage
 
-        viewModelScope.launch {
+        safeLaunch {
             val response = GeminiService.askAiAdvisor(
                 question = question,
                 currentUser = user,
@@ -923,7 +969,7 @@ class CxViewModel(application: Application) : AndroidViewModel(application) {
         description: String,
         onResult: (category: String, priority: TaskPriority, tatHours: Double) -> Unit
     ) {
-        viewModelScope.launch {
+        safeLaunch {
             val res = GeminiService.suggestTaskSlaAndCategory(title, description)
             val category = res["category"] ?: "Customer Resolution"
             val priority = when (res["priority"]?.uppercase()) {
@@ -1178,7 +1224,7 @@ class CxViewModel(application: Application) : AndroidViewModel(application) {
         customerAccountOrTicket: String?,
         dueDateTime: Long? = null
     ) {
-        viewModelScope.launch(Dispatchers.IO) {
+        safeLaunch(Dispatchers.IO) {
             val now = System.currentTimeMillis()
             val due = dueDateTime ?: (now + (tatHours * 3600000L).toLong())
             val effectiveTatHours = if (dueDateTime != null && dueDateTime > now) {
@@ -1209,7 +1255,7 @@ class CxViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun updateTask(task: CxTask) {
-        viewModelScope.launch(Dispatchers.IO) {
+        safeLaunch(Dispatchers.IO) {
             repository.updateTask(task.copy(lastUpdated = System.currentTimeMillis()))
         }
     }
@@ -1221,7 +1267,7 @@ class CxViewModel(application: Application) : AndroidViewModel(application) {
         pendingReason: String? = null,
         breachReason: String? = null
     ) {
-        viewModelScope.launch(Dispatchers.IO) {
+        safeLaunch(Dispatchers.IO) {
             repository.updateTaskStatus(
                 task = task,
                 newStatus = newStatus,
@@ -1239,7 +1285,7 @@ class CxViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun deleteTask(task: CxTask) {
-        viewModelScope.launch(Dispatchers.IO) {
+        safeLaunch(Dispatchers.IO) {
             TatNotificationManager.clearTaskAlert(getApplication(), task.id)
             repository.deleteTask(task)
             if (_selectedTask.value?.id == task.id) {
@@ -1255,7 +1301,7 @@ class CxViewModel(application: Application) : AndroidViewModel(application) {
         _activeTimerTaskId.value = taskId
         _timerSeconds.value = 0
 
-        timerJob = viewModelScope.launch {
+        timerJob = safeLaunch {
             while (true) {
                 delay(1000)
                 _timerSeconds.value += 1
@@ -1273,7 +1319,7 @@ class CxViewModel(application: Application) : AndroidViewModel(application) {
         _activeTimerTaskId.value = null
         _timerSeconds.value = 0
 
-        viewModelScope.launch(Dispatchers.IO) {
+        safeLaunch(Dispatchers.IO) {
             val task = repository.getTaskById(taskId)
             val memberId = task?.assigneeId ?: 1L
             repository.logTimeMotion(
@@ -1290,7 +1336,7 @@ class CxViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun logManualTimeMotion(taskId: Long, durationMinutes: Int, activityType: String, notes: String) {
-        viewModelScope.launch(Dispatchers.IO) {
+        safeLaunch(Dispatchers.IO) {
             val task = repository.getTaskById(taskId)
             val memberId = task?.assigneeId ?: 1L
             repository.logTimeMotion(
@@ -1317,7 +1363,7 @@ class CxViewModel(application: Application) : AndroidViewModel(application) {
         defaultTatHours: Double,
         targetSlaPercent: Double
     ) {
-        viewModelScope.launch(Dispatchers.IO) {
+        safeLaunch(Dispatchers.IO) {
             val unit = CxUnit(
                 name = name.trim(),
                 code = code.trim().uppercase(),
@@ -1333,13 +1379,13 @@ class CxViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun updateUnit(unit: CxUnit) {
-        viewModelScope.launch(Dispatchers.IO) {
+        safeLaunch(Dispatchers.IO) {
             repository.updateUnit(unit)
         }
     }
 
     fun deleteUnit(unit: CxUnit) {
-        viewModelScope.launch(Dispatchers.IO) {
+        safeLaunch(Dispatchers.IO) {
             repository.deleteUnit(unit)
         }
     }
@@ -1355,7 +1401,7 @@ class CxViewModel(application: Application) : AndroidViewModel(application) {
         designation: String,
         avatarColorHex: String
     ) {
-        viewModelScope.launch(Dispatchers.IO) {
+        safeLaunch(Dispatchers.IO) {
             val member = TeamMember(
                 unitId = unitId,
                 fullName = fullName.trim(),
@@ -1371,7 +1417,7 @@ class CxViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun updateTeamMember(member: TeamMember) {
-        viewModelScope.launch(Dispatchers.IO) {
+        safeLaunch(Dispatchers.IO) {
             repository.updateTeamMember(member)
         }
     }
@@ -1408,7 +1454,7 @@ class CxViewModel(application: Application) : AndroidViewModel(application) {
         phone: String,
         role: String = ""
     ) {
-        viewModelScope.launch(Dispatchers.IO) {
+        safeLaunch(Dispatchers.IO) {
             val existing = repository.allTeamMembers.firstOrNull()?.find { it.id == id }
             if (existing != null) {
                 val updated = existing.copy(
@@ -1439,7 +1485,7 @@ class CxViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun reassignMemberUnit(memberId: Long, newUnitId: Long) {
-        viewModelScope.launch(Dispatchers.IO) {
+        safeLaunch(Dispatchers.IO) {
             val existing = repository.allTeamMembers.firstOrNull()?.find { it.id == memberId }
             if (existing != null) {
                 val updated = existing.copy(unitId = newUnitId)
@@ -1461,7 +1507,7 @@ class CxViewModel(application: Application) : AndroidViewModel(application) {
         designation: String = "CX Intern / Trainee",
         phone: String = ""
     ) {
-        viewModelScope.launch(Dispatchers.IO) {
+        safeLaunch(Dispatchers.IO) {
             val existing = repository.allTeamMembers.firstOrNull()?.find { it.id == id }
             if (existing != null) {
                 val updated = existing.copy(
@@ -1492,7 +1538,7 @@ class CxViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun deleteTeamMember(member: TeamMember) {
-        viewModelScope.launch(Dispatchers.IO) {
+        safeLaunch(Dispatchers.IO) {
             repository.deleteTeamMember(member)
             val existingUser = repository.getUserByEmail(member.email)
             if (existingUser != null && !existingUser.isUnitHead) {
@@ -1502,7 +1548,7 @@ class CxViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun deleteMemberById(id: Long) {
-        viewModelScope.launch(Dispatchers.IO) {
+        safeLaunch(Dispatchers.IO) {
             val existing = repository.allTeamMembers.firstOrNull()?.find { it.id == id }
             if (existing != null) {
                 deleteTeamMember(existing)
@@ -1521,7 +1567,7 @@ class CxViewModel(application: Application) : AndroidViewModel(application) {
         unitFilterLabel: String = "All Units",
         fileNamePrefix: String = "HBL_CX_Performance_Report"
     ) {
-        viewModelScope.launch(Dispatchers.IO) {
+        safeLaunch(Dispatchers.IO) {
             val currentTasks = filteredTasksList ?: tasks.value
             val currentUnits = units.value
             val currentMembers = teamMembers.value
@@ -1607,7 +1653,7 @@ class CxViewModel(application: Application) : AndroidViewModel(application) {
 
     // Reset Actions
     fun clearAllTasksAndTestData() {
-        viewModelScope.launch(Dispatchers.IO) {
+        safeLaunch(Dispatchers.IO) {
             repository.deleteAllTasks()
             _selectedTask.value = null
             _activeTimerTaskId.value = null
@@ -1619,7 +1665,7 @@ class CxViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun clearEntireDatabase() {
-        viewModelScope.launch(Dispatchers.IO) {
+        safeLaunch(Dispatchers.IO) {
             repository.clearAllData()
             _selectedTask.value = null
             _activeTimerTaskId.value = null
@@ -1631,7 +1677,7 @@ class CxViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun resetToSampleData() {
-        viewModelScope.launch(Dispatchers.IO) {
+        safeLaunch(Dispatchers.IO) {
             repository.resetToSampleData()
         }
     }

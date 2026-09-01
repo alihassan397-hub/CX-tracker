@@ -57,6 +57,8 @@ import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.NavigationRail
 import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -119,6 +121,17 @@ fun MainAppScreen(
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+
+    // Shows Firestore/network errors (e.g. "add task" failing) as a Snackbar
+    // instead of the app crashing — see CxViewModel.safeLaunch().
+    val snackbarHostState = remember { SnackbarHostState() }
+    val errorMessage by viewModel.errorMessage.collectAsStateWithLifecycle()
+    LaunchedEffect(errorMessage) {
+        errorMessage?.let { msg ->
+            snackbarHostState.showSnackbar(msg)
+            viewModel.clearError()
+        }
+    }
 
     val currentUser by viewModel.currentUser.collectAsStateWithLifecycle()
     val units by viewModel.units.collectAsStateWithLifecycle()
@@ -213,6 +226,7 @@ fun MainAppScreen(
             val isExpandedScreen = maxWidth >= 840.dp
 
             Scaffold(
+                snackbarHost = { SnackbarHost(snackbarHostState) },
                 topBar = {
                     TopAppBar(
                         navigationIcon = {
