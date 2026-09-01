@@ -1,6 +1,4 @@
-package com.example
-
-import com.google.firebase.firestore.PropertyName
+package com.example.ui.viewmodel
 
 // --- Base Models ---
 data class AssignedTask(
