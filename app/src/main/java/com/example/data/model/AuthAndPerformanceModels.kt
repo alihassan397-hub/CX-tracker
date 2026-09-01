@@ -1,4 +1,8 @@
- data class AssignedTask(
+package com.example
+
+import com.google.firebase.firestore.PropertyName
+
+data class AssignedTask(
     val id: String = "",
     val title: String = "",
     val description: String = "",
