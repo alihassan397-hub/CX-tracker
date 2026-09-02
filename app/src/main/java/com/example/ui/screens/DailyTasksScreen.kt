@@ -854,14 +854,11 @@ fun AddDailyTaskDialog(
     var markedTimestamp by remember { mutableLongStateOf(System.currentTimeMillis()) }
     var markedDateStr by remember { mutableStateOf(standardDateFormat.format(Date())) }
 
-    val categories = listOf(
-        "Customer Complaint",
-        "Call Center Tele-Services",
-        "Branch Quality Audit",
-        "QA Call Calibration",
-        "Digital App Dispute",
-        "Regulatory Ombudsman",
-        "General CX Operation"
+      val categories = listOf(
+        "Complaints Management Unit",
+        "Executive Customer Experience",
+        "Service Quality",
+        "VOC"
     )
 
     AlertDialog(
