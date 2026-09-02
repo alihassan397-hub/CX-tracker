@@ -454,7 +454,7 @@ class CxViewModel(application: Application) : AndroidViewModel(application) {
                 val err = authResult.exceptionOrNull()?.message ?: "Could not create account. Please try again."
                 _authUiState.value = AuthUiState.Error(err)
                 launch(Dispatchers.Main) { onError(err) }
-                return@launch
+                return@safeLaunch
             }
 
             // SECURITY FIX: self-service sign-up must NEVER be able to create a
