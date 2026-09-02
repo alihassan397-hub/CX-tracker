@@ -82,10 +82,10 @@ class CxViewModel(application: Application) : AndroidViewModel(application) {
         val fe = t as? FirebaseFirestoreException
         return when {
             fe != null && fe.code == FirebaseFirestoreException.Code.PERMISSION_DENIED ->
-                "Ijazat nahi mili (Permission denied). Aam wajah: aapke account ka role Firestore console mein abhi 'UNIT_HEAD' set nahi hua — Firestore > users > (aapki entry) mein role field check karein."
+                "Permission denied by Firestore. This usually means your account's Firestore profile document isn't set up correctly yet (its document ID must exactly match your Firebase Authentication UID), or — for actions that only a Unit Head can do — your role field isn't set to UNIT_HEAD. Ask your admin to check Firestore > users > (your account)."
             fe != null && fe.code == FirebaseFirestoreException.Code.UNAVAILABLE ->
-                "Internet connection check karein — Firestore tak nahi pohanch paye."
-            else -> "Kuch masla ho gaya: ${t.message ?: t::class.simpleName}"
+                "Couldn't reach the server. Please check your internet connection and try again."
+            else -> "Something went wrong: ${t.message ?: t::class.simpleName}"
         }
     }
 
