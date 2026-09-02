@@ -61,28 +61,8 @@ jobs:
           validate-wrappers: false
 
       - name: Build Debug APK
-        id: build
-        continue-on-error: true
         run: |
-          gradle :app:assembleDebug --stacktrace --no-daemon --no-configuration-cache -x test -x lint 2>&1 | tee /tmp/build_log.txt
-
-      - name: Save build log for diagnostics
-        if: always()
-        run: |
-          git config user.email "ci@cxtracker.local"
-          git config user.name "CI Bot"
-          git fetch origin ci-logs 2>/dev/null || true
-          git checkout --orphan ci-logs-tmp
-          git reset --hard
-          mkdir -p .ci-logs
-          cp /tmp/build_log.txt .ci-logs/last_build_log.txt
-          git add .ci-logs/last_build_log.txt
-          git commit -m "ci: build log for ${{ github.sha }}"
-          git push origin ci-logs-tmp:ci-logs --force
-
-      - name: Fail job if build actually failed
-        if: steps.build.outcome == 'failure'
-        run: exit 1
+          gradle :app:assembleDebug --stacktrace --no-daemon --no-configuration-cache -x test -x lint
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
