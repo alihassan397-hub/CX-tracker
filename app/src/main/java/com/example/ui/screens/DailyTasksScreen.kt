@@ -829,7 +829,7 @@ fun AddDailyTaskDialog(
 
     var title by remember { mutableStateOf("") }
     var categoryExpanded by remember { mutableStateOf(false) }
-    var category by remember { mutableStateOf("Customer Complaint") }
+    var category by remember { mutableStateOf("Service Quality") }
     var countStr by remember { mutableStateOf("1") }
     var hoursStr by remember { mutableStateOf("1.0") }
     var qualityScore by remember { mutableDoubleStateOf(95.0) }
