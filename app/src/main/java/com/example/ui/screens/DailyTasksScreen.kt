@@ -54,7 +54,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
-import androidx.compose.material3.ExposedDropdownMenu
+import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FloatingActionButton
@@ -1114,7 +1114,7 @@ fun AddDailyTaskDialog(
                                     .testTag("daily_task_category_dropdown"),
                                 shape = RoundedCornerShape(10.dp)
                             )
-                            ExposedDropdownMenu(
+                            DropdownMenu(
                                 expanded = categoryExpanded,
                                 onDismissRequest = { categoryExpanded = false }
                             ) {
