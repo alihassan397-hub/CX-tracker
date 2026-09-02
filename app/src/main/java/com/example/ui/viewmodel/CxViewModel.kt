@@ -750,7 +750,16 @@ class CxViewModel(application: Application) : AndroidViewModel(application) {
                 connectedCalls = connectedCalls.coerceAtLeast(0),
                 answeredCalls = answeredCalls.coerceAtLeast(0)
             )
-            repository.insertDailyTask(entry)
+                        try {
+                repository.insertDailyTask(entry)
+            } catch (e: Exception) {
+                val liveUid = repository.firebaseCurrentUid()
+                throw Exception(
+                    "DEBUG entry.userId=${entry.userId} | user.id=${user.id} | user.authUid=${user.authUid} | " +
+                        "liveFirebaseUid=$liveUid | user.role=${user.role} | original=${e.message}",
+                    e
+                )
+            }
         }
     }
 
