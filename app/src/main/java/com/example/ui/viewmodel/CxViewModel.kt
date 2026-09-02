@@ -719,7 +719,10 @@ class CxViewModel(application: Application) : AndroidViewModel(application) {
         impactMetric: String,
         notes: String,
         customDateString: String? = null,
-        customTimestamp: Long? = null
+        customTimestamp: Long? = null,
+        totalDialledCalls: Int = 0,
+        connectedCalls: Int = 0,
+        answeredCalls: Int = 0
     ) {
         val user = _currentUser.value ?: return
         val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.US)
@@ -742,7 +745,10 @@ class CxViewModel(application: Application) : AndroidViewModel(application) {
                 qualityScorePercent = qualityScore.coerceIn(0.0, 100.0),
                 fcrResolved = fcrResolved,
                 impactMetric = impactMetric.ifEmpty { "SLA Turnaround" },
-                notes = notes.trim()
+                notes = notes.trim(),
+                totalDialledCalls = totalDialledCalls.coerceAtLeast(0),
+                connectedCalls = connectedCalls.coerceAtLeast(0),
+                answeredCalls = answeredCalls.coerceAtLeast(0)
             )
             repository.insertDailyTask(entry)
         }

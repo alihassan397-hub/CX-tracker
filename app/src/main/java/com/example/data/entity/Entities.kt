@@ -222,5 +222,10 @@ data class DailyTaskEntry(
     val qualityScorePercent: Double = 95.0,
     val fcrResolved: Boolean = true,
     val impactMetric: String = "SLA Turnaround",
-    val notes: String = ""
+    val notes: String = "",
+    // VOC Call Log metrics (only populated when logged from the VOC unit's
+    // call-log form; 0 for every other unit's ordinary task entries).
+    val totalDialledCalls: Int = 0,
+    val connectedCalls: Int = 0,
+    val answeredCalls: Int = 0
 )

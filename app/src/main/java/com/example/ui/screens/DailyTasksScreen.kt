@@ -54,6 +54,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenu
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FloatingActionButton
@@ -117,6 +118,7 @@ fun DailyTasksScreen(
 ) {
     val context = LocalContext.current
     val currentUser by viewModel.currentUser.collectAsStateWithLifecycle()
+    val units by viewModel.units.collectAsStateWithLifecycle()
     val dailyTasks by viewModel.userDailyTasks.collectAsStateWithLifecycle()
     val scorecard by viewModel.userPerformanceScorecard.collectAsStateWithLifecycle()
     val aiState by viewModel.aiAnalysisState.collectAsStateWithLifecycle()
@@ -536,9 +538,11 @@ fun DailyTasksScreen(
 
     // ADD DAILY TASK DIALOG
     if (showAddTaskDialog) {
+        val currentUnitName = units.find { it.id == currentUser?.unitId }?.name ?: ""
         AddDailyTaskDialog(
+            unitName = currentUnitName,
             onDismiss = { showAddTaskDialog = false },
-            onConfirm = { title, category, count, hours, status, tat, quality, fcr, metric, notes, customDateStr, customTimestamp ->
+            onConfirm = { title, category, count, hours, status, tat, quality, fcr, metric, notes, customDateStr, customTimestamp, dialled, connected, answered ->
                 viewModel.addDailyTask(
                     title = title,
                     category = category,
@@ -551,7 +555,10 @@ fun DailyTasksScreen(
                     impactMetric = metric,
                     notes = notes,
                     customDateString = customDateStr,
-                    customTimestamp = customTimestamp
+                    customTimestamp = customTimestamp,
+                    totalDialledCalls = dialled,
+                    connectedCalls = connected,
+                    answeredCalls = answered
                 )
                 showAddTaskDialog = false
                 Toast.makeText(context, "Daily task logged for $customDateStr! Indicators updated automatically.", Toast.LENGTH_SHORT).show()
@@ -791,6 +798,7 @@ fun DailyTaskCard(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AddDailyTaskDialog(
+    unitName: String = "",
     onDismiss: () -> Unit,
     onConfirm: (
         title: String,
@@ -804,10 +812,23 @@ fun AddDailyTaskDialog(
         metric: String,
         notes: String,
         customDateString: String,
-        customTimestamp: Long
+        customTimestamp: Long,
+        totalDialledCalls: Int,
+        connectedCalls: Int,
+        answeredCalls: Int
     ) -> Unit
 ) {
+    // The VOC unit logs calls, not "items/cases" — it gets its own
+    // Total Dialled / Connected / Answered call-log form below. A VOC team
+    // member can still switch to "Other Task" if what they need to log
+    // isn't a call (e.g. a report, a meeting, coordination work).
+    val isVocUnit = unitName.trim().equals("VOC", ignoreCase = true) ||
+            unitName.contains("Voice of Customer", ignoreCase = true)
+    var loggingOtherTask by remember { mutableStateOf(false) }
+    val showCallLogForm = isVocUnit && !loggingOtherTask
+
     var title by remember { mutableStateOf("") }
+    var categoryExpanded by remember { mutableStateOf(false) }
     var category by remember { mutableStateOf("Customer Complaint") }
     var countStr by remember { mutableStateOf("1") }
     var hoursStr by remember { mutableStateOf("1.0") }
@@ -817,6 +838,13 @@ fun AddDailyTaskDialog(
     var status by remember { mutableStateOf(TaskStatus.COMPLETED) }
     var impactMetric by remember { mutableStateOf("SLA Turnaround") }
     var notes by remember { mutableStateOf("") }
+
+    // VOC call-log fields
+    var dialledStr by remember { mutableStateOf("") }
+    var connectedStr by remember { mutableStateOf("") }
+    var answeredStr by remember { mutableStateOf("") }
+    var othersCountStr by remember { mutableStateOf("") }
+    var othersDescription by remember { mutableStateOf("") }
 
     // Calendar Work Date selection
     val standardDateFormat = remember { SimpleDateFormat("yyyy-MM-dd", Locale.US) }
@@ -842,7 +870,10 @@ fun AddDailyTaskDialog(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Default.CalendarMonth, contentDescription = null, tint = HblPrimary)
                 Spacer(modifier = Modifier.width(8.dp))
-                Text("Log Daily Task & Calendar Date", fontWeight = FontWeight.Bold)
+                Text(
+                    if (showCallLogForm) "Log VOC Call Activity" else "Log Daily Task",
+                    fontWeight = FontWeight.Bold
+                )
             }
         },
         text = {
@@ -946,66 +977,182 @@ fun AddDailyTaskDialog(
                     }
                 }
 
-                item {
-                    OutlinedTextField(
-                        value = title,
-                        onValueChange = { title = it },
-                        label = { Text("Task / Activity Title *") },
-                        placeholder = { Text("e.g. Resolved 6 ATM reversal tickets") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth().testTag("daily_task_title_input"),
-                        shape = RoundedCornerShape(10.dp)
-                    )
-                }
-
-                item {
-                    Text("Category", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.Gray)
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        categories.take(3).forEach { cat ->
-                            Surface(
-                                color = if (category == cat) HblPrimary else Color.LightGray.copy(alpha = 0.2f),
-                                shape = RoundedCornerShape(8.dp),
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .clickable { category = cat }
-                            ) {
-                                Text(
-                                    text = cat.substringBefore(" "),
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = if (category == cat) Color.White else Color.Black,
-                                    textAlign = TextAlign.Center,
-                                    modifier = Modifier.padding(vertical = 6.dp)
-                                )
+                if (isVocUnit) {
+                    item {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Checkbox(
+                                checked = loggingOtherTask,
+                                onCheckedChange = { loggingOtherTask = it }
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Column {
+                                Text("Other Task (not a call)", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                Text("Tick this if what you're logging isn't a call — e.g. a report or meeting", fontSize = 11.sp, color = Color.Gray)
                             }
                         }
                     }
                 }
 
-                item {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        OutlinedTextField(
-                            value = countStr,
-                            onValueChange = { countStr = it },
-                            label = { Text("Items / Cases") },
-                            singleLine = true,
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(10.dp)
-                        )
+                if (showCallLogForm) {
+                    // ☎️ VOC CALL LOG FORM
+                    item {
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = Color(0xFFEFF6FF)),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text(
+                                    text = "Call Volumes",
+                                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold, color = Color(0xFF1D4ED8))
+                                )
+                                OutlinedTextField(
+                                    value = dialledStr,
+                                    onValueChange = { dialledStr = it.filter { c -> c.isDigit() } },
+                                    label = { Text("Total Dialled Calls *") },
+                                    singleLine = true,
+                                    modifier = Modifier.fillMaxWidth().testTag("voc_dialled_input"),
+                                    shape = RoundedCornerShape(10.dp)
+                                )
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    OutlinedTextField(
+                                        value = connectedStr,
+                                        onValueChange = { connectedStr = it.filter { c -> c.isDigit() } },
+                                        label = { Text("Connected") },
+                                        singleLine = true,
+                                        modifier = Modifier.weight(1f).testTag("voc_connected_input"),
+                                        shape = RoundedCornerShape(10.dp)
+                                    )
+                                    OutlinedTextField(
+                                        value = answeredStr,
+                                        onValueChange = { answeredStr = it.filter { c -> c.isDigit() } },
+                                        label = { Text("Answered") },
+                                        singleLine = true,
+                                        modifier = Modifier.weight(1f).testTag("voc_answered_input"),
+                                        shape = RoundedCornerShape(10.dp)
+                                    )
+                                }
+                                HorizontalDivider()
+                                Text(
+                                    text = "Others",
+                                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold, color = Color(0xFF1D4ED8))
+                                )
+                                Text(
+                                    "Anything besides the calls above — leave blank if not applicable",
+                                    fontSize = 11.sp,
+                                    color = Color.Gray
+                                )
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    OutlinedTextField(
+                                        value = othersCountStr,
+                                        onValueChange = { othersCountStr = it.filter { c -> c.isDigit() } },
+                                        label = { Text("Count") },
+                                        singleLine = true,
+                                        modifier = Modifier.weight(1f),
+                                        shape = RoundedCornerShape(10.dp)
+                                    )
+                                    OutlinedTextField(
+                                        value = othersDescription,
+                                        onValueChange = { othersDescription = it },
+                                        label = { Text("What is it?") },
+                                        singleLine = true,
+                                        modifier = Modifier.weight(2f),
+                                        shape = RoundedCornerShape(10.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    item {
                         OutlinedTextField(
                             value = hoursStr,
                             onValueChange = { hoursStr = it },
                             label = { Text("Hours Spent") },
                             singleLine = true,
-                            modifier = Modifier.weight(1f),
+                            modifier = Modifier.fillMaxWidth(),
                             shape = RoundedCornerShape(10.dp)
                         )
+                    }
+                } else {
+                    // GENERAL TASK FORM (non-VOC units, or VOC's "Other Task")
+                    item {
+                        OutlinedTextField(
+                            value = title,
+                            onValueChange = { title = it },
+                            label = { Text("Task / Activity Title *") },
+                            placeholder = { Text("e.g. Resolved 6 ATM reversal tickets") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth().testTag("daily_task_title_input"),
+                            shape = RoundedCornerShape(10.dp)
+                        )
+                    }
+
+                    item {
+                        Text("Category", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.Gray)
+                        ExposedDropdownMenuBox(
+                            expanded = categoryExpanded,
+                            onExpandedChange = { categoryExpanded = it }
+                        ) {
+                            OutlinedTextField(
+                                value = category,
+                                onValueChange = {},
+                                readOnly = true,
+                                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = categoryExpanded) },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .menuAnchor()
+                                    .testTag("daily_task_category_dropdown"),
+                                shape = RoundedCornerShape(10.dp)
+                            )
+                            ExposedDropdownMenu(
+                                expanded = categoryExpanded,
+                                onDismissRequest = { categoryExpanded = false }
+                            ) {
+                                categories.forEach { cat ->
+                                    DropdownMenuItem(
+                                        text = { Text(cat) },
+                                        onClick = {
+                                            category = cat
+                                            categoryExpanded = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    item {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            OutlinedTextField(
+                                value = countStr,
+                                onValueChange = { countStr = it },
+                                label = { Text("Items / Cases") },
+                                singleLine = true,
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(10.dp)
+                            )
+                            OutlinedTextField(
+                                value = hoursStr,
+                                onValueChange = { hoursStr = it },
+                                label = { Text("Hours Spent") },
+                                singleLine = true,
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(10.dp)
+                            )
+                        }
                     }
                 }
 
@@ -1059,19 +1206,21 @@ fun AddDailyTaskDialog(
                     }
                 }
 
-                item {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Checkbox(
-                            checked = fcrResolved,
-                            onCheckedChange = { fcrResolved = it }
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Column {
-                            Text("First Contact Resolution (FCR)", fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                            Text("Resolved on initial customer engagement", fontSize = 11.sp, color = Color.Gray)
+                if (!showCallLogForm) {
+                    item {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Checkbox(
+                                checked = fcrResolved,
+                                onCheckedChange = { fcrResolved = it }
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Column {
+                                Text("First Contact Resolution (FCR)", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                Text("Resolved on initial customer engagement", fontSize = 11.sp, color = Color.Gray)
+                            }
                         }
                     }
                 }
@@ -1092,23 +1241,53 @@ fun AddDailyTaskDialog(
         confirmButton = {
             Button(
                 onClick = {
-                    if (title.isBlank()) return@Button
-                    val c = countStr.toIntOrNull() ?: 1
                     val h = hoursStr.toDoubleOrNull() ?: 1.0
-                    onConfirm(
-                        title,
-                        category,
-                        c,
-                        h,
-                        status,
-                        tatStatus,
-                        qualityScore,
-                        fcrResolved,
-                        impactMetric,
-                        notes,
-                        markedDateStr,
-                        markedTimestamp
-                    )
+                    if (showCallLogForm) {
+                        val dialled = dialledStr.toIntOrNull() ?: 0
+                        if (dialled <= 0) return@Button
+                        val connected = connectedStr.toIntOrNull() ?: 0
+                        val answered = answeredStr.toIntOrNull() ?: 0
+                        val othersCount = othersCountStr.toIntOrNull() ?: 0
+                        val callTitle = "VOC Call Log: $dialled dialled, $connected connected, $answered answered" +
+                                if (othersCount > 0 && othersDescription.isNotBlank()) " + $othersCount $othersDescription" else ""
+                        onConfirm(
+                            callTitle,
+                            "VOC Call Log",
+                            dialled + othersCount,
+                            h,
+                            status,
+                            tatStatus,
+                            qualityScore,
+                            fcrResolved,
+                            impactMetric,
+                            notes,
+                            markedDateStr,
+                            markedTimestamp,
+                            dialled,
+                            connected,
+                            answered
+                        )
+                    } else {
+                        if (title.isBlank()) return@Button
+                        val c = countStr.toIntOrNull() ?: 1
+                        onConfirm(
+                            title,
+                            category,
+                            c,
+                            h,
+                            status,
+                            tatStatus,
+                            qualityScore,
+                            fcrResolved,
+                            impactMetric,
+                            notes,
+                            markedDateStr,
+                            markedTimestamp,
+                            0,
+                            0,
+                            0
+                        )
+                    }
                 },
                 colors = ButtonDefaults.buttonColors(containerColor = HblPrimary),
                 modifier = Modifier.testTag("submit_daily_task_dialog_btn")

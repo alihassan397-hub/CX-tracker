@@ -529,7 +529,10 @@ class CxRepository(
         qualityScorePercent = asDouble(m["qualityScorePercent"]),
         fcrResolved = asBool(m["fcrResolved"]),
         impactMetric = m["impactMetric"] as? String ?: "SLA Turnaround",
-        notes = m["notes"] as? String ?: ""
+        notes = m["notes"] as? String ?: "",
+        totalDialledCalls = asInt(m["totalDialledCalls"]),
+        connectedCalls = asInt(m["connectedCalls"]),
+        answeredCalls = asInt(m["answeredCalls"])
     )
 
     private fun dailyTaskToMap(d: DailyTaskEntry): Map<String, Any?> = mapOf(
@@ -537,6 +540,8 @@ class CxRepository(
         "title" to d.title, "category" to d.category, "dateString" to d.dateString, "timestamp" to d.timestamp,
         "hoursSpent" to d.hoursSpent, "tasksCount" to d.tasksCount, "status" to d.status.name,
         "tatStatus" to d.tatStatus.name, "qualityScorePercent" to d.qualityScorePercent,
-        "fcrResolved" to d.fcrResolved, "impactMetric" to d.impactMetric, "notes" to d.notes
+        "fcrResolved" to d.fcrResolved, "impactMetric" to d.impactMetric, "notes" to d.notes,
+        "totalDialledCalls" to d.totalDialledCalls, "connectedCalls" to d.connectedCalls,
+        "answeredCalls" to d.answeredCalls
     )
 }
